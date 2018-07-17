@@ -2,13 +2,19 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven'
 apply plugin: 'signing'
 
-version = "1.1.31"
+version = "1.5"
 group = "com.kbeanie"
+
+//def sonatypeRepo = ""
+//def sonatypeUsername = ""
+//def sonatypePassword = ""
+//def scmUrl = ""
 
 signing {
     required {
-        has("release") && gradle.taskGraph.hasTask("uploadArchives")
+        gradle.taskGraph.hasTask("uploadArchives")
     }
+    println 'Signing...'
     sign configurations.archives
 }
 
@@ -60,12 +66,21 @@ uploadArchives {
 }
 
 android {
-    compileSdkVersion 24
-    buildToolsVersion '24.0.3'
+    signingConfigs {
+        release {
+            keyAlias ""
+            keyPassword ""
+            storeFile file('../extras/release.keystore')
+            storePassword ""
+        }
+    }
+
+    compileSdkVersion 27
+    buildToolsVersion '27.0.3'
 
     defaultConfig {
-        minSdkVersion 10
-        targetSdkVersion 24
+        minSdkVersion 14
+        targetSdkVersion 25
         versionCode 1
         versionName "1.0"
     }
@@ -85,8 +100,21 @@ android {
     }
 }
 
+gradle.taskGraph.whenReady { taskGraph ->
+    if (taskGraph.hasTask(':app:assembleRelease') || taskGraph.hasTask(':app:packageRelease')) {
+        /**
+         * Configure Release key
+         */
+        def props = new Properties()
+        props.load(new FileInputStream(rootProject.file("extras/secret.properties")))
+        android.signingConfigs.release.keyAlias props.getProperty("alias")
+        android.signingConfigs.release.storePassword props.getProperty('keyStorePassword')
+        android.signingConfigs.release.keyPassword props.getProperty('keyAliasPassword')
+    }
+}
+
 dependencies {
-    provided 'com.android.support:appcompat-v7:24.2.1'
-    compile 'junit:junit:4.12'
-    compile 'com.android.support:support-v4:24.2.1'
+    compileOnly 'com.android.support:appcompat-v7:25.3.1'
+    implementation 'junit:junit:4.12'
+    implementation 'com.android.support:support-v4:25.3.1'
 }

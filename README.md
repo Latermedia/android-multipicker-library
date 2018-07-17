@@ -26,7 +26,7 @@
 
 ##### Gradle
 ```groovy
-compile 'com.kbeanie:multipicker:1.1.31@aar'
+compile 'com.kbeanie:multipicker:1.5@aar'
 ```
 
 ##### Maven
@@ -34,7 +34,7 @@ compile 'com.kbeanie:multipicker:1.1.31@aar'
 <dependency>
     <groupId>com.kbeanie</groupId>
     <artifactId>multipicker</artifactId>
-    <version>1.1.31</version>
+    <version>1.5</version>
 </dependency>
 ```
 
@@ -47,6 +47,19 @@ _Try out the sample app if you want to test it out first._
 </a>
 
 ##### Recent changes
+
+###### Version 1.5
+- Issue #126: UPT: Made picker classes non final
+- Issue #47: Add quality/compression level property
+- Issue #130: android.database.CursorIndexOutOfBoundsException
+- Issue #121: CursorIndexOutOfBoundsException
+
+###### Version 1.3
+- Updated build tools and min SDK version
+- Issue #86: Added equals and hashcode methods
+
+###### Version 1.1.4-beta
+- library conflict issue #93
 
 ###### Version 1.1.31
 - #60: Bug: resource leak found in strict mode

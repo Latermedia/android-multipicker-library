@@ -16,7 +16,10 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
 
+import com.kbeanie.multipicker.api.Picker;
+import com.kbeanie.multipicker.core.PickerManager;
 import com.kbeanie.multipicker.sample.adapters.DemosAdapter;
+import com.kbeanie.multipicker.sample.utils.PickerUtils;
 
 /**
  * Created by kbibek on 2/18/16.
@@ -35,6 +38,8 @@ public class HomeActivity extends AbActivity implements AdapterView.OnItemClickL
         lvDemoTypes.setOnItemClickListener(this);
 
         requestExternalStoragePermission();
+
+        PickerManager.debugglable = true;
     }
 
     @Override
@@ -73,7 +78,8 @@ public class HomeActivity extends AbActivity implements AdapterView.OnItemClickL
         Intent intent = null;
         switch (which) {
             case DemosAdapter.IMAGE_PICKER_ACTIVITY:
-                intent = new Intent(this, ImagePickerActivity.class);
+//                intent = new Intent(this, ImagePickerActivity.class);
+                intent = new Intent(this, SimpleImagePickerActivity.class);
                 break;
             case DemosAdapter.IMAGE_PICKER_FRAGMENT:
                 intent = new Intent(this, ImagePickerFragmentActivity.class);
@@ -82,7 +88,8 @@ public class HomeActivity extends AbActivity implements AdapterView.OnItemClickL
                 intent = new Intent(this, ImagePickerSupportFragmentActivity.class);
                 break;
             case DemosAdapter.VIDEO_PICKER_ACTIVITY:
-                intent = new Intent(this, VideoPickerActivity.class);
+//                intent = new Intent(this, VideoPickerActivity.class);
+                intent = new Intent(this, SimpleVideoPickerActivity.class);
                 break;
             case DemosAdapter.VIDEO_PICKER_FRAGMENT:
                 intent = new Intent(this, VideoPickerFragmentActivity.class);
@@ -178,11 +185,13 @@ public class HomeActivity extends AbActivity implements AdapterView.OnItemClickL
         if ((ContextCompat.checkSelfPermission(this,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) || (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) || (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED)) {
 
             ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_CONTACTS},
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_CONTACTS},
                     EXTERNAL_STORAGE_PERMISSION_REQUEST);
         }
     }
