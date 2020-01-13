@@ -25,4 +25,8 @@ public class PickerException extends Exception {
     public PickerException(IOException e) {
         super(e);
     }
+
+    public PickerException(RuntimeException e) {
+        super(e);
+    }
 }

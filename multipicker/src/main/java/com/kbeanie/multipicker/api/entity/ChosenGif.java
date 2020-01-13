@@ -4,16 +4,16 @@ import androidx.annotation.NonNull;
 import androidx.exifinterface.media.ExifInterface;
 
 /**
- * Contains details about the image that was chosen
+ * Contains details about the gif that was chosen
  */
-public class ChosenImage extends ChosenFile {
+public class ChosenGif extends ChosenFile {
     private int orientation;
     private String thumbnailPath;
     private String thumbnailSmallPath;
     private int width;
     private int height;
 
-    public ChosenImage() {
+    public ChosenGif() {
         super();
     }
 
@@ -30,26 +30,8 @@ public class ChosenImage extends ChosenFile {
         this.orientation = orientation;
     }
 
-    /**
-     * Get the path to the thumbnail(big) of the image
-     *
-     * @return path
-     */
-    public String getThumbnailPath() {
-        return thumbnailPath;
-    }
-
     public void setThumbnailPath(String thumbnailPath) {
         this.thumbnailPath = thumbnailPath;
-    }
-
-    /**
-     * Get the path to the thumbnail(small) of the image
-     *
-     * @return path
-     */
-    public String getThumbnailSmallPath() {
-        return thumbnailSmallPath;
     }
 
     public void setThumbnailSmallPath(String thumbnailSmallPath) {
@@ -59,7 +41,7 @@ public class ChosenImage extends ChosenFile {
     /**
      * Get the image width
      *
-     * @return image width
+     * @return width
      */
     public int getWidth() {
         return width;
@@ -72,7 +54,7 @@ public class ChosenImage extends ChosenFile {
     /**
      * Get the image height;
      *
-     * @return image height
+     * @return height
      */
     public int getHeight() {
         return height;
@@ -84,8 +66,8 @@ public class ChosenImage extends ChosenFile {
 
     private final static String STRING_FORMAT = "Height: %s, Width: %s, Orientation: %s";
 
-    @NonNull
     @Override
+    @NonNull
     public String toString() {
         return super.toString() + " " + String.format(STRING_FORMAT, height, width,
                 getOrientationName());
@@ -94,9 +76,9 @@ public class ChosenImage extends ChosenFile {
     /**
      * Get Orientation user friendly label
      *
-     * @return orientation
+     * @return orientation name
      */
-    public String getOrientationName() {
+    private String getOrientationName() {
         String orientationName = "NORMAL";
         switch (orientation) {
             case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:

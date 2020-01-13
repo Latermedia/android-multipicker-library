@@ -1,7 +1,7 @@
 package com.kbeanie.multipicker.api;
 
 import android.app.Activity;
-import android.support.v4.app.Fragment;
+import androidx.fragment.app.Fragment;
 
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.core.VideoPickerImpl;
@@ -13,7 +13,7 @@ public class CameraVideoPicker extends VideoPickerImpl {
 
     /**
      * Constructor for triggering Video capture from an {@link Activity}
-     * @param activity
+     * @param activity activity
      */
     public CameraVideoPicker(Activity activity) {
         super(activity, Picker.PICK_VIDEO_CAMERA);
@@ -21,24 +21,16 @@ public class CameraVideoPicker extends VideoPickerImpl {
 
     /**
      * Constructor for triggering Video capture from a {@link Fragment}
-     * @param fragment
+     * @param fragment fragment
      */
     public CameraVideoPicker(Fragment fragment) {
         super(fragment, Picker.PICK_VIDEO_CAMERA);
     }
 
     /**
-     * Constructor for triggering Video capture from a {@link android.app.Fragment}
-     * @param appFragment
-     */
-    public CameraVideoPicker(android.app.Fragment appFragment) {
-        super(appFragment, Picker.PICK_VIDEO_CAMERA);
-    }
-
-    /**
      * Re-initialize {@link CameraVideoPicker} object if your activity is destroyed
-     * @param activity
-     * @param path
+     * @param activity activity
+     * @param path path
      */
     public CameraVideoPicker(Activity activity, String path) {
         super(activity, Picker.PICK_VIDEO_CAMERA);
@@ -47,8 +39,8 @@ public class CameraVideoPicker extends VideoPickerImpl {
 
     /**
      * Re-initialize {@link CameraVideoPicker} object if your activity is destroyed
-     * @param fragment
-     * @param path
+     * @param fragment fragment
+     * @param path path
      */
     public CameraVideoPicker(Fragment fragment, String path) {
         super(fragment, Picker.PICK_VIDEO_CAMERA);
@@ -56,18 +48,8 @@ public class CameraVideoPicker extends VideoPickerImpl {
     }
 
     /**
-     * Re-initialize {@link CameraVideoPicker} object if your activity is destroyed
-     * @param appFragment
-     * @param path
-     */
-    public CameraVideoPicker(android.app.Fragment appFragment, String path) {
-        super(appFragment, Picker.PICK_VIDEO_CAMERA);
-        reinitialize(path);
-    }
-
-    /**
      * Trigger Video Capture using the device's Camera
-     * @return
+     * @return path as String
      */
     public String pickVideo() {
         String path = null;
@@ -76,7 +58,7 @@ public class CameraVideoPicker extends VideoPickerImpl {
         } catch (PickerException e) {
             e.printStackTrace();
             if (callback != null) {
-                callback.onError(e.getMessage());
+                callback.onPickerError(e.getMessage());
             }
         }
         return path;

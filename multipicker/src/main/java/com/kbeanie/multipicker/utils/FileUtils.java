@@ -6,10 +6,12 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Environment;
-import android.support.v4.content.ContextCompat;
-import android.util.Log;
+
+import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 
 import com.kbeanie.multipicker.api.exceptions.PickerException;
+import com.kbeanie.multipicker.storage.StoragePreferences;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -19,19 +21,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import storage.StoragePreferences;
-
 /**
  * Created by kbibek on 2/20/16.
  */
 public class FileUtils {
     private final static String TAG = FileUtils.class.getSimpleName();
 
-    public static String getExternalFilesDirectory(String type, Context context) throws PickerException {
+    public static String getExternalFilesDirectory(String type, @NonNull Context context) throws PickerException {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             boolean permissionGranted = checkForExternalStorageRuntimePermission(context);
             if (!permissionGranted) {
-                Log.e(TAG, Manifest.permission.WRITE_EXTERNAL_STORAGE + " permission not available");
                 throw new PickerException(Manifest.permission.WRITE_EXTERNAL_STORAGE + " permission not available");
             }
         }
@@ -40,20 +39,17 @@ public class FileUtils {
         String appDirectory = directory.getAbsolutePath() + File.separator + appName;
         File fileAppDirectory = new File(appDirectory);
         if (!fileAppDirectory.exists()) {
-            fileAppDirectory.mkdir();
+            boolean mkDir = fileAppDirectory.mkdir();
         }
         String appTypeDirectory = fileAppDirectory.getAbsolutePath() + File.separator + appName + " " + type;
         File finalDirectory = new File(appTypeDirectory);
         if (!finalDirectory.exists()) {
-            finalDirectory.mkdir();
-        }
-        if (finalDirectory == null) {
-            throw new PickerException("Couldn't initialize External Storage Path");
+            boolean mkDir = finalDirectory.mkdir();
         }
         return finalDirectory.getAbsolutePath();
     }
 
-    private static String getAppName(Context context) {
+    private static String getAppName(@NonNull Context context) {
         StoragePreferences preferences = new StoragePreferences(context);
         String savedFolderName = preferences.getFolderName();
         if (savedFolderName == null || savedFolderName.isEmpty()) {
@@ -74,11 +70,10 @@ public class FileUtils {
         return savedFolderName;
     }
 
-    public static String getExternalFilesDir(String type, Context context) throws PickerException {
+    public static String getExternalFilesDir(String type, @NonNull Context context) throws PickerException {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             boolean permissionGranted = checkForExternalStorageRuntimePermission(context);
             if (!permissionGranted) {
-                Log.e(TAG, Manifest.permission.WRITE_EXTERNAL_STORAGE + " permission not available");
                 throw new PickerException(Manifest.permission.WRITE_EXTERNAL_STORAGE + " permission not available");
             }
         }
@@ -89,7 +84,7 @@ public class FileUtils {
         return directory.getAbsolutePath();
     }
 
-    private static boolean checkForExternalStorageRuntimePermission(Context context) {
+    private static boolean checkForExternalStorageRuntimePermission(@NonNull Context context) {
         boolean granted;
         int permissionCheck = ContextCompat.checkSelfPermission(context,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -97,10 +92,10 @@ public class FileUtils {
         return granted;
     }
 
-    public static String getExternalCacheDir(Context context) throws PickerException {
+    public static String getExternalCacheDir(@NonNull Context context) throws PickerException {
         File directory = context.getExternalCacheDir();
         if (directory == null) {
-            throw new PickerException("Couldn't intialize External Cache Directory");
+            throw new PickerException("Couldn't initialise External Cache Directory");
         }
         return directory.getAbsolutePath();
     }
@@ -117,7 +112,7 @@ public class FileUtils {
         if (destFile == null) {
             throw new NullPointerException("Destination must not be null");
         }
-        if (srcFile.exists() == false) {
+        if (!srcFile.exists()) {
             throw new FileNotFoundException("Source '" + srcFile + "' does not exist");
         }
         if (srcFile.isDirectory()) {
@@ -126,12 +121,12 @@ public class FileUtils {
         if (srcFile.getCanonicalPath().equals(destFile.getCanonicalPath())) {
             throw new IOException("Source '" + srcFile + "' and destination '" + destFile + "' are the same");
         }
-        if (destFile.getParentFile() != null && destFile.getParentFile().exists() == false) {
-            if (destFile.getParentFile().mkdirs() == false) {
+        if (destFile.getParentFile() != null && !destFile.getParentFile().exists()) {
+            if (!destFile.getParentFile().mkdirs()) {
                 throw new IOException("Destination '" + destFile + "' directory cannot be created");
             }
         }
-        if (destFile.exists() && destFile.canWrite() == false) {
+        if (destFile.exists() && !destFile.canWrite()) {
             throw new IOException("Destination '" + destFile + "' exists but is read-only");
         }
         doCopyFile(srcFile, destFile, preserveFileDate);

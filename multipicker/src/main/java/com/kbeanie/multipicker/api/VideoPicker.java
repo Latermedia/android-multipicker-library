@@ -1,7 +1,7 @@
 package com.kbeanie.multipicker.api;
 
 import android.app.Activity;
-import android.support.v4.app.Fragment;
+import androidx.fragment.app.Fragment;
 
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.core.VideoPickerImpl;
@@ -13,7 +13,7 @@ public class VideoPicker extends VideoPickerImpl {
     /**
      * Constructor to choose a video from an {@link Activity}
      *
-     * @param activity
+     * @param activity activity
      */
     public VideoPicker(Activity activity) {
         super(activity, Picker.PICK_VIDEO_DEVICE);
@@ -22,19 +22,10 @@ public class VideoPicker extends VideoPickerImpl {
     /**
      * Constructor to choose a video from a {@link Fragment}
      *
-     * @param fragment
+     * @param fragment fragment
      */
     public VideoPicker(Fragment fragment) {
         super(fragment, Picker.PICK_VIDEO_DEVICE);
-    }
-
-    /**
-     * Constructor to choose a video from a {@link android.app.Fragment}
-     *
-     * @param appFragment
-     */
-    public VideoPicker(android.app.Fragment appFragment) {
-        super(appFragment, Picker.PICK_VIDEO_DEVICE);
     }
 
     /**
@@ -53,7 +44,8 @@ public class VideoPicker extends VideoPickerImpl {
         } catch (PickerException e) {
             e.printStackTrace();
             if (callback != null) {
-                callback.onError(e.getMessage());
+                callback.onPickerException(e);
+                callback.onPickerError(e.getMessage());
             }
         }
     }

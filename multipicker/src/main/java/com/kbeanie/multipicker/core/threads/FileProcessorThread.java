@@ -8,24 +8,29 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
-import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
-import android.text.TextUtils;
+import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.exifinterface.media.ExifInterface;
 
 import com.kbeanie.multipicker.api.CacheLocation;
 import com.kbeanie.multipicker.api.callbacks.FilePickerCallback;
 import com.kbeanie.multipicker.api.entity.ChosenFile;
 import com.kbeanie.multipicker.api.entity.ChosenImage;
+import com.kbeanie.multipicker.api.entity.ErrorFile;
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.utils.BitmapUtils;
 import com.kbeanie.multipicker.utils.FileUtils;
 import com.kbeanie.multipicker.utils.LogUtils;
+import com.kbeanie.multipicker.utils.MediaType;
 import com.kbeanie.multipicker.utils.MimeUtils;
 
 import java.io.BufferedInputStream;
@@ -42,7 +47,8 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
-import java.util.Calendar;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
@@ -54,20 +60,37 @@ import static com.kbeanie.multipicker.utils.StreamHelper.verifyStream;
  * Created by kbibek on 2/20/16.
  */
 public class FileProcessorThread extends Thread {
-    protected final static int THUMBNAIL_BIG = 1;
-    protected final static int THUMBNAIL_SMALL = 2;
-    private final static String TAG = FileProcessorThread.class.getSimpleName();
+    final static int THUMBNAIL_BIG = 1;
+    final static int THUMBNAIL_SMALL = 2;
+
+    private final static String TAG = "FileProcessorThread";
+
     private final int cacheLocation;
     protected final Context context;
     protected final List<? extends ChosenFile> files;
+    protected final List<ErrorFile> errorFiles;
+
+    @Nullable
     private FilePickerCallback callback;
 
     private int requestId;
 
-    public FileProcessorThread(Context context, List<? extends ChosenFile> files, int cacheLocation) {
+    public FileProcessorThread(@NonNull Context context, List<? extends ChosenFile> files,
+                               int cacheLocation) {
         this.context = context;
         this.files = files;
+        this.errorFiles = new ArrayList<>();
         this.cacheLocation = cacheLocation;
+    }
+
+    void checkErrorFiles() {
+        for (Iterator<? extends ChosenFile> iterator = files.iterator(); iterator.hasNext(); ) {
+            ChosenFile item = iterator.next();
+            if (!item.isSuccess()) {
+                errorFiles.add(new ErrorFile(item.toString()));
+                iterator.remove();
+            }
+        }
     }
 
     public void setRequestId(int requestId) {
@@ -77,29 +100,35 @@ public class FileProcessorThread extends Thread {
     @Override
     public void run() {
         processFiles();
+        checkErrorFiles();
         if (callback != null) {
             onDone();
         }
     }
 
     private void onDone() {
-        try {
-            if (callback != null) {
-                ((Activity) context).runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onFilesChosen((List<ChosenFile>) files);
-                    }
-                });
-            }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
+        if (callback != null) {
+            getActivityFromContext().runOnUiThread(() -> {
+                errorFilesCallback();
+                callback.onFilesChosen(files);
+            });
         }
     }
 
-    protected void processFiles() {
-        for (ChosenFile file : files) {
+    private void errorFilesCallback() {
+        if (callback != null && !errorFiles.isEmpty()) {
+            callback.onErrorFiles(errorFiles);
+        }
+    }
+
+    private void processFiles() {
+        int totalFiles = files.size();
+        for (int i = 0; i < totalFiles; i++) {
+            ChosenFile file = files.get(i);
             try {
+                if (callback != null) {
+                    callback.onProcessingFile(i + 1, totalFiles);
+                }
                 file.setRequestId(requestId);
                 LogUtils.d(TAG, "processFile: Before: " + file.toString());
                 processFile(file);
@@ -107,9 +136,13 @@ public class FileProcessorThread extends Thread {
                 file.setSuccess(true);
                 LogUtils.d(TAG, "processFile: Final Path: " + file.toString());
             } catch (PickerException e) {
-                e.printStackTrace();
                 file.setSuccess(false);
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
+                e.printStackTrace();
             }
+
         }
     }
 
@@ -118,13 +151,15 @@ public class FileProcessorThread extends Thread {
             try {
                 postProcess(file);
             } catch (Exception e) {
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
             }
         }
     }
 
     private void postProcess(ChosenFile file) throws PickerException {
-        file.setCreatedAt(Calendar.getInstance().getTime());
         File f = new File(file.getOriginalPath());
         file.setSize(f.length());
         copyFileToFolder(file);
@@ -135,9 +170,9 @@ public class FileProcessorThread extends Thread {
         LogUtils.d(TAG, "copyFileToFolder: extension: " + file.getExtension());
         LogUtils.d(TAG, "copyFileToFolder: mimeType: " + file.getMimeType());
         LogUtils.d(TAG, "copyFileToFolder: type: " + file.getType());
-        if (file.getType().equals("image")) {
+        if (file.getType().equals(MediaType.IMAGE)) {
             file.setDirectoryType(Environment.DIRECTORY_PICTURES);
-        } else if (file.getType().equals("video")) {
+        } else if (file.getType().equals(MediaType.VIDEO)) {
             file.setDirectoryType(Environment.DIRECTORY_MOVIES);
         }
         String outputPath = getTargetLocationToCopy(file);
@@ -159,25 +194,25 @@ public class FileProcessorThread extends Thread {
 
     private void processFile(ChosenFile file) throws PickerException {
         String uri = file.getQueryUri();
-        LogUtils.d(TAG, "processFile: uri"+ uri);
+        LogUtils.d(TAG, "processFile: uri" + uri);
         if (uri.startsWith("file://") || uri.startsWith("/")) {
-            file = sanitizeUri(file);
+            sanitizeUri(file);
             file.setDisplayName(Uri.parse(file.getOriginalPath()).getLastPathSegment());
             file.setMimeType(guessMimeTypeFromUrl(file.getOriginalPath(), file.getType()));
         } else if (uri.startsWith("http")) {
-            file = downloadAndSaveFile(file);
+            downloadAndSaveFile(file);
         } else if (uri.startsWith("content:")) {
-            file = getAbsolutePathIfAvailable(file);
+            getAbsolutePathIfAvailable(file);
         }
         uri = file.getOriginalPath();
         // Still content:: Try ContentProvider stream import
         if (uri.startsWith("content:")) {
-            file = getFromContentProvider(file);
+            getFromContentProvider(file);
         }
         uri = file.getOriginalPath();
         // Still content:: Try ContentProvider stream import alternate
         if (uri.startsWith("content:")) {
-            file = getFromContentProviderAlternate(file);
+            getFromContentProviderAlternate(file);
         }
 
         // Check for URL Encoded file paths
@@ -187,27 +222,31 @@ public class FileProcessorThread extends Thread {
                 file.setOriginalPath(decodedURL);
             }
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
     }
 
     // If starts with file: (For some content providers, remove the file prefix)
-    private ChosenFile sanitizeUri(ChosenFile file) {
+    private void sanitizeUri(ChosenFile file) {
         if (file.getQueryUri().startsWith("file://")) {
             file.setOriginalPath(file.getQueryUri().substring(7));
         }
-        return file;
     }
 
-    protected ChosenFile getFromContentProviderAlternate(ChosenFile file) throws PickerException {
+    private void getFromContentProviderAlternate(ChosenFile file) throws PickerException {
         BufferedOutputStream outStream = null;
         BufferedInputStream bStream = null;
 
         try {
             InputStream inputStream = context.getContentResolver()
                     .openInputStream(Uri.parse(file.getOriginalPath()));
+            if (inputStream != null) {
+                bStream = new BufferedInputStream(inputStream);
+            }
 
-            bStream = new BufferedInputStream(inputStream);
             String mimeType = URLConnection.guessContentTypeFromStream(inputStream);
 
             verifyStream(file.getOriginalPath(), bStream);
@@ -230,16 +269,16 @@ public class FileProcessorThread extends Thread {
             }
         } catch (IOException e) {
             throw new PickerException(e);
+        } catch (UnsupportedOperationException e) {
+            throw new PickerException(e);
         } finally {
             flush(outStream);
             close(bStream);
             close(outStream);
         }
-
-        return file;
     }
 
-    protected ChosenFile getFromContentProvider(ChosenFile file) throws PickerException {
+    private void getFromContentProvider(ChosenFile file) throws PickerException {
 
         BufferedInputStream inputStream = null;
         BufferedOutputStream outStream = null;
@@ -276,21 +315,22 @@ public class FileProcessorThread extends Thread {
             }
         } catch (IOException e) {
             throw new PickerException(e);
+        } catch (UnsupportedOperationException e) {
+            throw new PickerException(e);
         } finally {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                close(parcelFileDescriptor);
-            }
+            close(parcelFileDescriptor);
             flush(outStream);
             close(outStream);
             close(inputStream);
         }
-        return file;
     }
 
     // Try to get a local copy if available
 
-    private ChosenFile getAbsolutePathIfAvailable(ChosenFile file) {
-        String[] projection = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE};
+    private void getAbsolutePathIfAvailable(ChosenFile file) {
+        String[] projection = {MediaStore.MediaColumns.DATA
+                , MediaStore.MediaColumns.DISPLAY_NAME
+                , MediaStore.MediaColumns.MIME_TYPE};
 
         // Workaround for various implementations for Google Photos/Picasa
         if (file.getQueryUri().startsWith(
@@ -301,47 +341,28 @@ public class FileProcessorThread extends Thread {
             file.setOriginalPath(file.getQueryUri());
         }
 
+        final Uri originalUri = Uri.parse(file.getOriginalPath());
+
         // Try to see if there's a cached local copy that is available
         if (file.getOriginalPath().startsWith("content://")) {
-            try {
-                Cursor cursor = context.getContentResolver().query(Uri.parse(file.getOriginalPath()), projection,
-                        null, null, null);
-                cursor.moveToFirst();
-                try {
-                    // Samsung Bug
-                    if (!file.getOriginalPath().contains("com.sec.android.gallery3d.provider")) {
-                        String path = cursor.getString(cursor
-                                .getColumnIndexOrThrow(MediaStore.MediaColumns.DATA));
-                        LogUtils.d(TAG, "processFile: Path: " + path);
-                        if (path != null) {
-                            file.setOriginalPath(path);
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
+            try (Cursor cursor = context.getContentResolver().query(originalUri, projection,
+                    null, null, null)) {
+                if (cursor != null) {
+                    trySettingOriginalPath(cursor, file);
                 }
-                try {
-                    String displayName = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME));
-                    if (displayName != null) {
-                        file.setDisplayName(displayName);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                String mimeType = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE));
-                if (mimeType != null) {
-                    file.setMimeType(mimeType);
-                }
-                cursor.close();
             } catch (Exception e) {
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
             }
         }
 
-        // Check if DownloadsDocument in which case, we can get the local copy by using the content provider
-        if (file.getOriginalPath().startsWith("content:") && isDownloadsDocument(Uri.parse(file.getOriginalPath()))) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                String[] data = getPathAndMimeType(file);
+        // Check if DownloadsDocument in which case, we can get the local copy by using the
+        // content provider
+        if (file.getOriginalPath().startsWith("content:") && isDownloadsDocument(originalUri)) {
+            String[] data = getPathAndMimeType(originalUri, file.getType());
+            if (data != null) {
                 if (data[0] != null) {
                     file.setOriginalPath(data[0]);
                 }
@@ -350,24 +371,121 @@ public class FileProcessorThread extends Thread {
                 }
             }
         }
+    }
 
-        return file;
+    /**
+     * Update's file original path in case local copy available
+     *
+     * @param cursor database cursor
+     * @param file   chosen file object
+     */
+    private void trySettingOriginalPath(@NonNull Cursor cursor, ChosenFile file) {
+        cursor.moveToFirst();
+
+        // Samsung Bug
+        if (!file.getOriginalPath().contains("com.sec.android.gallery3d.provider")) {
+            if (isValidColumnIndex(cursor, MediaStore.MediaColumns.DATA)) {
+                String path = cursor.getString(cursor
+                        .getColumnIndexOrThrow(MediaStore.MediaColumns.DATA));
+                if (path != null) {
+                    file.setOriginalPath(path);
+                }
+                LogUtils.d(TAG, "processFile: Path: " + path);
+            }
+        }
+
+        if (isValidColumnIndex(cursor, MediaStore.MediaColumns.DISPLAY_NAME)) {
+            String displayName =
+                    cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME));
+            if (displayName != null) {
+                file.setDisplayName(displayName);
+            }
+        }
+
+        if (isValidColumnIndex(cursor, MediaStore.MediaColumns.MIME_TYPE)) {
+            String mimeType =
+                    cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE));
+            if (mimeType != null) {
+                file.setMimeType(mimeType);
+            }
+        }
+
+        cursor.close();
+    }
+
+    /**
+     * Checks if column exist in table
+     *
+     * @param cursor     database cursor
+     * @param columnName column name to check
+     * @return boolean as flag true/false
+     */
+    private boolean isValidColumnIndex(Cursor cursor, String columnName) {
+        return cursor != null && cursor.getColumnIndex(columnName) != -1;
     }
 
     @TargetApi(Build.VERSION_CODES.KITKAT)
-    private String[] getPathAndMimeType(ChosenFile file) {
-
-        final boolean isKitKat = Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT;
-        Uri uri = Uri.parse(file.getOriginalPath());
+    private String[] getPathAndMimeType(@NonNull Uri uri, @Nullable String fileType) {
         // DocumentProvider
-        if (isKitKat && DocumentsContract.isDocumentUri(context, uri)) {
+        if (DocumentsContract.isDocumentUri(context, uri)) {
             // ExternalStorageProvider
-            if (isDownloadsDocument(uri)) {
+            if (isExternalStorageDocument(uri)) {
+                final String docId = DocumentsContract.getDocumentId(uri);
+                final String[] split = docId.split(":");
+                final String type = split[0];
+                if ("primary".equalsIgnoreCase(type)) {
+                    return getDataAndMimeType(Environment.getExternalStorageDirectory() + "/" + split[1], fileType);
+                }
+            }
+            // DownloadsProvider
+            else if (isDownloadsDocument(uri)) {
                 final String id = DocumentsContract.getDocumentId(uri);
-                final Uri contentUri = ContentUris.withAppendedId(
-                        Uri.parse("content://downloads/public_downloads"), Long.valueOf(id));
+                final String[] split = id.split(":");
+                final String type = split[0];
 
-                return getDataAndMimeType(contentUri, null, null, file.getType());
+                if ("raw".equalsIgnoreCase(type)) {
+                    return getDataAndMimeType(split[1], fileType);
+                } else {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                        String[] contentUriPrefixesToTry = new String[]{
+                                "content://downloads/public_downloads",
+                                "content://downloads/my_downloads",
+                                "content://downloads/all_downloads"
+                        };
+
+                        for (String contentUriPrefix : contentUriPrefixesToTry) {
+                            final Uri contentUri =
+                                    ContentUris.withAppendedId(Uri.parse(contentUriPrefix),
+                                            Long.valueOf(id));
+                            try {
+                                String[] dataAndMimeType = getDataAndMimeType(contentUri, null,
+                                        null, fileType);
+                                if (dataAndMimeType != null && dataAndMimeType[0] != null) {
+                                    return dataAndMimeType;
+                                }
+                            } catch (Exception ignore) {
+                                //do nothing
+                            }
+                        }
+
+                        // path could not be retrieved using ContentResolver,
+                        // therefore copy file to accessible cache using streams
+                        //Source: https://github.com/iPaulPro/aFileChooser/issues/101
+                        String fileName = getFileName(context, uri);
+                        File cacheDir = getDocumentCacheDir(context);
+                        File generateFile = generateFileName(fileName, cacheDir);
+                        String destinationPath = null;
+                        if (generateFile != null) {
+                            destinationPath = generateFile.getAbsolutePath();
+                            saveFileFromUri(context, uri, destinationPath);
+                        }
+                        if (destinationPath != null) {
+                            return getDataAndMimeType(destinationPath,
+                                    guessMimeTypeFromUrl(destinationPath, fileType));
+                        }
+                    }
+                    return getDataAndMimeType(uri, null, null, fileType);
+                }
             }
             // MediaProvider
             else if (isMediaDocument(uri)) {
@@ -376,61 +494,170 @@ public class FileProcessorThread extends Thread {
                 final String type = split[0];
 
                 Uri contentUri = null;
-                if ("image".equals(type)) {
+                if (MediaType.IMAGE.equals(type) || MediaType.GIF.equals(type)) {
                     contentUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                } else if ("video".equals(type)) {
+                } else if (MediaType.VIDEO.equals(type)) {
                     contentUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
-                } else if ("audio".equals(type)) {
-                    contentUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
                 }
 
-                final String selection = "_id=?";
+                final String selection = MediaStore.MediaColumns._ID + "=?";
                 final String[] selectionArgs = new String[]{
                         split[1]
                 };
 
-                return getDataAndMimeType(contentUri, selection, selectionArgs, file.getType());
+                return getDataAndMimeType(contentUri, selection, selectionArgs, fileType);
             }
         }
         // MediaStore (and general)
         else if ("content".equalsIgnoreCase(uri.getScheme())) {
-            return getDataAndMimeType(uri, null, null, file.getType());
+            return getDataAndMimeType(uri, null, null, fileType);
         }
         // File
         else if ("file".equalsIgnoreCase(uri.getScheme())) {
-            String path = uri.getPath();
-            String mimeType = guessMimeTypeFromUrl(path, file.getType());
-            String[] data = new String[2];
-            data[0] = path;
-            data[1] = mimeType;
-            return data;
+            return getDataAndMimeType(uri.getPath(), fileType);
         }
 
-        return null;
+        return getDataAndMimeType(uri.toString(), null);
+    }
+
+
+    //region workaround for crashes happens on Android 7 (non Samsung device)
+    private String getFileName(@NonNull Context context, Uri uri) {
+        String mimeType = context.getContentResolver().getType(uri);
+        String filename = null;
+
+        if (mimeType == null) {
+            String[] data = getPathAndMimeType(uri, null);
+            if (data[0] == null) {
+                filename = getName(uri.toString());
+            } else {
+                File file = new File(data[0]);
+                filename = file.getName();
+            }
+        } else {
+            Cursor returnCursor = context.getContentResolver().query(uri, null, null, null, null);
+            if (returnCursor != null) {
+                int nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                returnCursor.moveToFirst();
+                filename = returnCursor.getString(nameIndex);
+                returnCursor.close();
+            }
+        }
+
+        return filename;
+    }
+
+    private String getName(String filename) {
+        if (filename == null) {
+            return null;
+        }
+        int index = filename.lastIndexOf('/');
+        return filename.substring(index + 1);
+    }
+
+    private File getDocumentCacheDir(@NonNull Context context) {
+        File dir = new File(context.getCacheDir(), Environment.DIRECTORY_DOCUMENTS);
+        if (!dir.exists()) {
+            boolean mkdirs = dir.mkdirs();
+        }
+        return dir;
+    }
+
+    @Nullable
+    private File generateFileName(@Nullable String name, File directory) {
+        if (name == null) {
+            return null;
+        }
+
+        File file = new File(directory, name);
+
+        if (file.exists()) {
+            String fileName = name;
+            String extension = "";
+            int dotIndex = name.lastIndexOf('.');
+            if (dotIndex > 0) {
+                fileName = name.substring(0, dotIndex);
+                extension = name.substring(dotIndex);
+            }
+
+            int index = 0;
+
+            while (file.exists()) {
+                index++;
+                name = fileName + '(' + index + ')' + extension;
+                file = new File(directory, name);
+            }
+        }
+
+        try {
+            if (!file.createNewFile()) {
+                return null;
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        return file;
+    }
+
+    private void saveFileFromUri(Context context, Uri uri, String destinationPath) {
+        InputStream inputStream = null;
+        BufferedOutputStream outputStream = null;
+        try {
+            inputStream = context.getContentResolver().openInputStream(uri);
+            outputStream = new BufferedOutputStream(new FileOutputStream(destinationPath, false));
+            byte[] buf = new byte[1024];
+            inputStream.read(buf);
+            do {
+                outputStream.write(buf);
+            } while (inputStream.read(buf) != -1);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (inputStream != null) inputStream.close();
+                if (outputStream != null) outputStream.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    //endregion
+
+    private String[] getDataAndMimeType(@Nullable String path, @Nullable String type) {
+        String[] data = new String[2];
+        data[0] = path;
+        data[1] = guessMimeTypeFromUrl(path, type);
+        return data;
     }
 
     private String[] getDataAndMimeType(Uri uri, String selection,
                                         String[] selectionArgs, String type) {
         String[] data = new String[2];
-        Cursor cursor = null;
-        String[] projection = {MediaStore.MediaColumns.DATA};
 
-        try {
-            cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs,
-                    null);
+        String[] projection = {MediaStore.MediaColumns.DATA};
+        try (Cursor cursor = context.getContentResolver().query(uri, projection, selection,
+                selectionArgs,
+                null)) {
             if (cursor != null && cursor.moveToFirst()) {
-                String path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA));
-                data[0] = path;
-                data[1] = guessMimeTypeFromUrl(path, type);
-                return data;
+                if (isValidColumnIndex(cursor, MediaStore.MediaColumns.DATA)) {
+                    final int columnIndex =
+                            cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA);
+                    final String path = cursor.getString(columnIndex);
+                    if (path != null) {
+                        data[0] = path;
+                        data[1] = guessMimeTypeFromUrl(path, type);
+                        return data;
+                    }
+                }
             }
-        } finally {
-            if (cursor != null)
-                cursor.close();
         }
         return null;
     }
 
+    /**
+     * @param uri The Uri to check.
+     * @return Whether the Uri authority is ExternalStorageProvider.
+     */
     private boolean isExternalStorageDocument(Uri uri) {
         return "com.android.externalstorage.documents".equals(uri.getAuthority());
     }
@@ -443,7 +670,7 @@ public class FileProcessorThread extends Thread {
         return "com.android.providers.media.documents".equals(uri.getAuthority());
     }
 
-    private ChosenFile downloadAndSaveFile(ChosenFile file) {
+    private void downloadAndSaveFile(ChosenFile file) {
         String localFilePath;
         try {
             URL u = new URL(file.getQueryUri());
@@ -483,17 +710,17 @@ public class FileProcessorThread extends Thread {
             bStream.close();
             file.setOriginalPath(localFilePath);
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
-        return file;
     }
 
-    protected String getTargetDirectory(String type) throws PickerException {
-        String directory = null;
+    @NonNull
+    private String getTargetDirectory(String type) throws PickerException {
+        String directory;
         switch (cacheLocation) {
-            case CacheLocation.EXTERNAL_STORAGE_PUBLIC_DIR:
-                directory = FileUtils.getExternalFilesDirectory(type, context);
-                break;
             case CacheLocation.EXTERNAL_STORAGE_APP_DIR:
                 directory = FileUtils.getExternalFilesDir(type, context);
                 break;
@@ -503,16 +730,16 @@ public class FileProcessorThread extends Thread {
             case CacheLocation.INTERNAL_APP_DIR:
                 directory = FileUtils.getInternalFileDirectory(context);
                 break;
+            case CacheLocation.EXTERNAL_STORAGE_PUBLIC_DIR:
             default:
                 directory = FileUtils.getExternalFilesDirectory(type, context);
                 break;
         }
-
         return directory;
     }
 
     // Guess File extension from the file name
-    private String guessExtensionFromUrl(String url) {
+    private String guessExtensionFromUrl(@Nullable String url) {
         try {
             return MimeTypeMap.getFileExtensionFromUrl(url);
         } catch (Exception e) {
@@ -521,18 +748,18 @@ public class FileProcessorThread extends Thread {
     }
 
     // Guess Mime Type from the file extension
-    private String guessMimeTypeFromUrl(String url, String type) {
+    private String guessMimeTypeFromUrl(@Nullable String url, @Nullable String type) {
         String mimeType;
         String extension = guessExtensionFromUrl(url);
         if (extension == null || extension.isEmpty()) {
-            if (url.contains(".")) {
+            if (url != null && url.contains(".")) {
                 int index = url.lastIndexOf(".");
                 extension = url.substring(index + 1);
             } else {
                 extension = "*";
             }
         }
-        if (type.equals("file")) {
+        if ("file".equals(type)) {
             mimeType = MimeUtils.guessMimeTypeFromExtension(extension);
         } else {
             mimeType = type + "/" + extension;
@@ -574,21 +801,25 @@ public class FileProcessorThread extends Thread {
             }
         }
 
-        if (TextUtils.isEmpty(file.getMimeType())) {
+        String mimeType = file.getMimeType();
+        if (mimeType == null || mimeType.isEmpty()) {
             file.setMimeType(guessMimeTypeFromUrl(file.getOriginalPath(), file.getType()));
         }
 
         String probableFileName = fileName;
         File probableFile = new File(getTargetDirectory(file.getDirectoryType()) + File.separator
                 + probableFileName);
-        int counter = 0;
+        //int counter = 0;
+        //using current time to uniquely name files, counter could cause issues
+        long currentTimeInMillis;
         while (probableFile.exists()) {
-            counter++;
+            currentTimeInMillis = System.currentTimeMillis();
             if (fileName.contains(".")) {
                 int indexOfDot = fileName.lastIndexOf(".");
-                probableFileName = fileName.substring(0, indexOfDot - 1) + "-" + counter + "." + fileName.substring(indexOfDot + 1);
+                probableFileName =
+                        fileName.substring(0, indexOfDot - 1) + "-" + currentTimeInMillis + "." + fileName.substring(indexOfDot + 1);
             } else {
-                probableFileName = fileName + "(" + counter + ")";
+                probableFileName = fileName + "(" + currentTimeInMillis + ")";
             }
             probableFile = new File(getTargetDirectory(file.getDirectoryType()) + File.separator
                     + probableFileName);
@@ -601,19 +832,17 @@ public class FileProcessorThread extends Thread {
                 + fileName;
     }
 
-    protected String generateFileNameForVideoPreviewImage() throws PickerException {
+    String generateFileNameForVideoPreviewImage() throws PickerException {
         String fileName = UUID.randomUUID().toString();
         // If File name already contains an extension, we don't need to guess the extension
         String extension = ".jpg";
-        if (extension != null && !extension.isEmpty()) {
-            fileName += extension;
-        }
+        fileName += extension;
         return getTargetDirectory(Environment.DIRECTORY_PICTURES) + File.separator
                 + fileName;
     }
 
 
-    protected Activity getActivityFromContext() {
+    Activity getActivityFromContext() {
         return (Activity) context;
     }
 
@@ -621,27 +850,30 @@ public class FileProcessorThread extends Thread {
         this.callback = callback;
     }
 
-    protected ChosenImage ensureMaxWidthAndHeight(int maxWidth, int maxHeight, int quality, ChosenImage image) {
+    ChosenImage ensureMaxWidthAndHeight(int maxWidth, int maxHeight, int quality,
+                                        ChosenImage image) {
         try {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
-            BufferedInputStream boundsOnlyStream = new BufferedInputStream(new FileInputStream(image.getOriginalPath()));
+            BufferedInputStream boundsOnlyStream =
+                    new BufferedInputStream(new FileInputStream(image.getOriginalPath()));
             Bitmap bitmap = BitmapFactory.decodeStream(boundsOnlyStream, null, options);
             if (bitmap != null) {
                 bitmap.recycle();
             }
-            if (boundsOnlyStream != null) {
-                boundsOnlyStream.close();
-            }
+            boundsOnlyStream.close();
 
             int imageWidth = options.outWidth;
             int imageHeight = options.outHeight;
 
-            int[] scaledDimension = BitmapUtils.getScaledDimensions(imageWidth, imageHeight, maxWidth, maxHeight);
+            int[] scaledDimension = BitmapUtils.getScaledDimensions(imageWidth, imageHeight,
+                    maxWidth, maxHeight);
             if (!(scaledDimension[0] == imageWidth && scaledDimension[1] == imageHeight)) {
                 ExifInterface originalExifInterface = new ExifInterface(image.getOriginalPath());
-                String originalRotation = originalExifInterface.getAttribute(ExifInterface.TAG_ORIENTATION);
-                BufferedInputStream scaledInputStream = new BufferedInputStream(new FileInputStream(image.getOriginalPath()));
+                String originalRotation =
+                        originalExifInterface.getAttribute(ExifInterface.TAG_ORIENTATION);
+                BufferedInputStream scaledInputStream =
+                        new BufferedInputStream(new FileInputStream(image.getOriginalPath()));
                 options.inJustDecodeBounds = false;
                 bitmap = BitmapFactory.decodeStream(scaledInputStream, null, options);
                 scaledInputStream.close();
@@ -654,14 +886,16 @@ public class FileProcessorThread extends Thread {
                     FileOutputStream stream = new FileOutputStream(file);
 
                     Matrix matrix = new Matrix();
-                    matrix.postScale((float) scaledDimension[0] / imageWidth, (float) scaledDimension[1] / imageHeight);
+                    matrix.postScale((float) scaledDimension[0] / imageWidth,
+                            (float) scaledDimension[1] / imageHeight);
 
                     bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(),
                             bitmap.getHeight(), matrix, false);
                     bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream);
                     image.setOriginalPath(file.getAbsolutePath());
                     ExifInterface resizedExifInterface = new ExifInterface(file.getAbsolutePath());
-                    resizedExifInterface.setAttribute(ExifInterface.TAG_ORIENTATION, originalRotation);
+                    resizedExifInterface.setAttribute(ExifInterface.TAG_ORIENTATION,
+                            originalRotation);
                     resizedExifInterface.saveAttributes();
                     image.setWidth(scaledDimension[0]);
                     image.setHeight(scaledDimension[1]);
@@ -669,27 +903,29 @@ public class FileProcessorThread extends Thread {
                 }
             }
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
         return image;
     }
 
-    protected String downScaleAndSaveImage(String image, int scale, int quality) throws PickerException {
+    String downScaleAndSaveImage(String image, int scale, int quality) throws PickerException {
 
         FileOutputStream stream = null;
-        BufferedInputStream bstream = null;
         Bitmap bitmap;
         try {
             BitmapFactory.Options optionsForGettingDimensions = new BitmapFactory.Options();
             optionsForGettingDimensions.inJustDecodeBounds = true;
-            BufferedInputStream boundsOnlyStream = new BufferedInputStream(new FileInputStream(image));
-            bitmap = BitmapFactory.decodeStream(boundsOnlyStream, null, optionsForGettingDimensions);
+            BufferedInputStream boundsOnlyStream =
+                    new BufferedInputStream(new FileInputStream(image));
+            bitmap = BitmapFactory.decodeStream(boundsOnlyStream, null,
+                    optionsForGettingDimensions);
             if (bitmap != null) {
                 bitmap.recycle();
             }
-            if (boundsOnlyStream != null) {
-                boundsOnlyStream.close();
-            }
+            boundsOnlyStream.close();
             int w, l;
             w = optionsForGettingDimensions.outWidth;
             l = optionsForGettingDimensions.outHeight;
@@ -717,13 +953,13 @@ public class FileProcessorThread extends Thread {
             BitmapFactory.Options options = new BitmapFactory.Options();
             if (what > 3000) {
                 options.inSampleSize = scale * 6;
-            } else if (what > 2000 && what <= 3000) {
+            } else if (what > 2000) {
                 options.inSampleSize = scale * 5;
-            } else if (what > 1500 && what <= 2000) {
+            } else if (what > 1500) {
                 options.inSampleSize = scale * 4;
-            } else if (what > 1000 && what <= 1500) {
+            } else if (what > 1000) {
                 options.inSampleSize = scale * 3;
-            } else if (what > 400 && what <= 1000) {
+            } else if (what > 400) {
                 options.inSampleSize = scale * 2;
             } else {
                 options.inSampleSize = scale;
@@ -733,7 +969,8 @@ public class FileProcessorThread extends Thread {
             // TODO: Sometime the decode File Returns null for some images
             // For such cases, thumbnails can't be created.
             // Thumbnails will link to the original file
-            BufferedInputStream scaledInputStream = new BufferedInputStream(new FileInputStream(image));
+            BufferedInputStream scaledInputStream =
+                    new BufferedInputStream(new FileInputStream(image));
             bitmap = BitmapFactory.decodeStream(scaledInputStream, null, options);
 //            verifyBitmap(fileImage, bitmap);
             scaledInputStream.close();
@@ -757,7 +994,6 @@ public class FileProcessorThread extends Thread {
         } catch (Exception e) {
             throw new PickerException("Error while generating thumbnail: " + scale + " " + image);
         } finally {
-            close(bstream);
             flush(stream);
             close(stream);
         }
@@ -765,45 +1001,52 @@ public class FileProcessorThread extends Thread {
         return null;
     }
 
-    protected String getWidthOfImage(String path) {
+    String getWidthOfImage(String path) {
         String width = "";
         try {
             ExifInterface exif = new ExifInterface(path);
             width = exif.getAttribute(ExifInterface.TAG_IMAGE_WIDTH);
-            if (width.equals("0")) {
+            if ("0".equals(width)) {
                 SoftReference<Bitmap> bmp = getBitmapImage(path);
                 width = Integer.toString(bmp.get().getWidth());
                 bmp.clear();
             }
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
         return width;
     }
 
-    protected String getHeightOfImage(String path) {
+    String getHeightOfImage(String path) {
         String height = "";
         try {
             ExifInterface exif = new ExifInterface(path);
             height = exif.getAttribute(ExifInterface.TAG_IMAGE_LENGTH);
-            if (height.equals("0")) {
+            if ("0".equals(height)) {
                 SoftReference<Bitmap> bmp = getBitmapImage(path);
                 height = Integer.toString(bmp.get().getHeight());
                 bmp.clear();
             }
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
         return height;
     }
 
-    protected SoftReference<Bitmap> getBitmapImage(String path) {
+    private SoftReference<Bitmap> getBitmapImage(String path) {
         SoftReference<Bitmap> bitmap;
-        bitmap = new SoftReference<>(BitmapFactory.decodeFile(Uri.fromFile(new File(path)).getPath()));
+        bitmap =
+                new SoftReference<>(BitmapFactory.decodeFile(Uri.fromFile(new File(path)).getPath()));
         return bitmap;
     }
 
-    protected int getOrientation(String image) {
+    protected int getOrientation(@NonNull String image) {
         int orientation = ExifInterface.ORIENTATION_NORMAL;
         try {
             ExifInterface exif = new ExifInterface(image);
@@ -812,6 +1055,9 @@ public class FileProcessorThread extends Thread {
                     ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_NORMAL);
         } catch (Exception e) {
+            if (callback != null) {
+                callback.onPickerException(e);
+            }
             e.printStackTrace();
         }
         return orientation;

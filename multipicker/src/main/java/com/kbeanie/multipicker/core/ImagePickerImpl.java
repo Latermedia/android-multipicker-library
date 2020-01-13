@@ -3,13 +3,16 @@ package com.kbeanie.multipicker.core;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ClipData;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.FileProvider;
+
+import androidx.annotation.Nullable;
+import androidx.core.content.FileProvider;
+import androidx.fragment.app.Fragment;
 
 import com.kbeanie.multipicker.api.CacheLocation;
 import com.kbeanie.multipicker.api.CameraImagePicker;
@@ -20,6 +23,7 @@ import com.kbeanie.multipicker.api.entity.ChosenImage;
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.core.threads.ImageProcessorThread;
 import com.kbeanie.multipicker.utils.LogUtils;
+import com.kbeanie.multipicker.utils.MediaType;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -57,17 +61,9 @@ public abstract class ImagePickerImpl extends PickerManager {
     }
 
     /**
-     * @param appFragment {@link android.app.Fragment}
-     * @param pickerType  {@link Picker#PICK_IMAGE_DEVICE}, {@link Picker#PICK_IMAGE_CAMERA}
-     */
-    public ImagePickerImpl(android.app.Fragment appFragment, int pickerType) {
-        super(appFragment, pickerType);
-    }
-
-    /**
      * Enable generation of thumbnails. Default value is {@link Boolean#FALSE}
      *
-     * @param generateThumbnails
+     * @param generateThumbnails thumbnails
      */
     public void shouldGenerateThumbnails(boolean generateThumbnails) {
         this.generateThumbnails = generateThumbnails;
@@ -76,18 +72,20 @@ public abstract class ImagePickerImpl extends PickerManager {
     /**
      * Enable generation of metadata for the image. Default value is {@link Boolean#FALSE}
      *
-     * @param generateMetadata
+     * @param generateMetadata metadata
      */
     public void shouldGenerateMetadata(boolean generateMetadata) {
         this.generateMetadata = generateMetadata;
     }
 
     /**
-     * This should be used to re-initialize the picker object, in case your activity/fragment is destroyed.
+     * This should be used to re-initialize the picker object, in case your activity/fragment is
+     * destroyed.
      * <p/>
-     * After creating the picker object, call this method with the path that you got after calling {@link PickerManager#pick()}
+     * After creating the picker object, call this method with the path that you got after
+     * calling {@link PickerManager#pick)}
      *
-     * @param path
+     * @param path path
      */
     public void reinitialize(String path) {
         this.path = path;
@@ -101,21 +99,23 @@ public abstract class ImagePickerImpl extends PickerManager {
      * Set quality of generated images.
      * For this property to work on original picture, ensureMaxSize must be set, so the original
      * image is processed and the compression level applied.
-     * @param quality  Hint to the compressor, 0-100. 0 meaning compress for
-     *                 small size, 100 meaning compress for max quality. Some
-     *                 formats, like PNG which is lossless, will ignore the
-     *                 quality setting. Defaults to 100 (max quality)
+     *
+     * @param quality Hint to the compressor, 0-100. 0 meaning compress for
+     *                small size, 100 meaning compress for max quality. Some
+     *                formats, like PNG which is lossless, will ignore the
+     *                quality setting. Defaults to 100 (max quality)
      */
     public void setQuality(int quality) {
         this.quality = quality;
     }
 
     /**
-     * Use this method to set the max size of the generated image. The final bitmap will be downscaled based on
+     * Use this method to set the max size of the generated image. The final bitmap will be
+     * downscaled based on
      * these values.
      *
-     * @param width
-     * @param height
+     * @param width  width
+     * @param height height
      */
     public void ensureMaxSize(int width, int height) {
         if (width > 0 && height > 0) {
@@ -127,7 +127,7 @@ public abstract class ImagePickerImpl extends PickerManager {
     @Override
     protected String pick() throws PickerException {
         if (callback == null) {
-            throw new PickerException("ImagePickerCallback is null!!! Please set one.");
+            throw new PickerException("ImagePickerCallback is null! Please set one.");
         }
         if (pickerType == Picker.PICK_IMAGE_DEVICE) {
             return pickLocalImage();
@@ -150,37 +150,53 @@ public abstract class ImagePickerImpl extends PickerManager {
         return null;
     }
 
+    @Nullable
     protected String takePictureWithCamera() throws PickerException {
-        Uri uri = null;
+        Uri uri;
         String tempFilePath;
+
+        final Context context = getContext();
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N || cacheLocation == CacheLocation.INTERNAL_APP_DIR) {
             tempFilePath = getNewFileLocation("jpeg", Environment.DIRECTORY_PICTURES);
+
+            String fileProviderAuthority = getFileProviderAuthority();
+
+            if (tempFilePath == null || fileProviderAuthority == null) {
+                return null;
+            }
+
             File file = new File(tempFilePath);
-            uri = FileProvider.getUriForFile(getContext(), getFileProviderAuthority(), file);
+            uri = FileProvider.getUriForFile(context, fileProviderAuthority, file);
             LogUtils.d(TAG, "takeVideoWithCamera: Temp Uri: " + uri.getPath());
         } else {
             tempFilePath = buildFilePath("jpeg", Environment.DIRECTORY_PICTURES);
+            if (tempFilePath == null) {
+                return null;
+            }
             uri = Uri.fromFile(new File(tempFilePath));
         }
+
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         intent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+
         if (extras != null) {
             intent.putExtras(extras);
         }
         LogUtils.d(TAG, "Temp Path for Camera capture: " + tempFilePath);
-        pickInternal(intent, Picker.PICK_IMAGE_CAMERA);
+        captureMediaInternal(intent, uri, Picker.PICK_IMAGE_CAMERA);
         return tempFilePath;
     }
 
     /**
      * Call this method from
-     * {@link Activity#onActivityResult(int, int, Intent)}
+     * {@link Activity's onActivityResult(int, int, Intent)}
      * OR
      * {@link Fragment#onActivityResult(int, int, Intent)}
      * OR
      * {@link android.app.Fragment#onActivityResult(int, int, Intent)}
      *
-     * @param data
+     * @param data data intent
      */
     @Override
     public void submit(Intent data) {
@@ -194,7 +210,8 @@ public abstract class ImagePickerImpl extends PickerManager {
     private void handleCameraData(Intent data) {
         LogUtils.d(TAG, "handleCameraData: " + path);
         if (path == null || path.isEmpty()) {
-            throw new RuntimeException("Camera Path cannot be null. Re-initialize with correct path value.");
+            throw new RuntimeException("Camera Path cannot be null. Re-initialize with correct " +
+                    "path value.");
         } else {
             List<String> uris = new ArrayList<>();
             uris.add(Uri.fromFile(new File(path)).toString());
@@ -227,28 +244,22 @@ public abstract class ImagePickerImpl extends PickerManager {
                     uris.add(paths.get(i).toString());
                 }
             }
-
             processImages(uris);
         }
     }
 
     private void onError(final String errorMessage) {
-        try {
-            if (callback != null) {
-                ((Activity) getContext()).runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onError(errorMessage);
-                    }
-                });
-            }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
+        if (callback != null) {
+            final Context context = getContext();
+            ((Activity) context).runOnUiThread(() -> callback.onPickerError(errorMessage));
         }
     }
 
     private void processImages(List<String> uris) {
-        ImageProcessorThread thread = new ImageProcessorThread(getContext(), getImageObjects(uris), cacheLocation);
+        final Context context = getContext();
+
+        ImageProcessorThread thread = new ImageProcessorThread(context,
+                getImageObjects(uris), cacheLocation);
         if (maxWidth != -1 && maxHeight != -1) {
             thread.setOutputImageDimensions(maxWidth, maxHeight);
         }
@@ -266,7 +277,7 @@ public abstract class ImagePickerImpl extends PickerManager {
             ChosenImage image = new ChosenImage();
             image.setQueryUri(uri);
             image.setDirectoryType(Environment.DIRECTORY_PICTURES);
-            image.setType("image");
+            image.setType(MediaType.IMAGE);
             images.add(image);
         }
         return images;
