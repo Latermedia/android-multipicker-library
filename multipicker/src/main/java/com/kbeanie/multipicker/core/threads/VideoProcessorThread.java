@@ -6,6 +6,9 @@ import android.media.MediaMetadataRetriever;
 import android.media.ThumbnailUtils;
 import android.provider.MediaStore;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import com.kbeanie.multipicker.api.callbacks.VideoPickerCallback;
 import com.kbeanie.multipicker.api.entity.ChosenFile;
 import com.kbeanie.multipicker.api.entity.ChosenVideo;
@@ -25,14 +28,17 @@ import static com.kbeanie.multipicker.utils.StreamHelper.flush;
  */
 public final class VideoProcessorThread extends FileProcessorThread {
 
-    private final static String TAG = VideoProcessorThread.class.getSimpleName();
+    private final static String TAG = "VideoProcessorThread";
 
+    @Nullable
     private VideoPickerCallback callback;
+
     private boolean shouldGenerateMetadata;
     private boolean shouldGeneratePreviewImages;
     private int quality = 100;
 
-    public VideoProcessorThread(Context context, List<? extends ChosenFile> files, int cacheLocation) {
+    public VideoProcessorThread(@NonNull Context context, List<? extends ChosenFile> files,
+                                int cacheLocation) {
         super(context, files, cacheLocation);
     }
 
@@ -44,6 +50,7 @@ public final class VideoProcessorThread extends FileProcessorThread {
     public void run() {
         super.run();
         postProcessVideos();
+        checkErrorFiles();
         onDone();
     }
 
@@ -54,6 +61,9 @@ public final class VideoProcessorThread extends FileProcessorThread {
                 postProcessVideo(video);
                 video.setSuccess(true);
             } catch (PickerException e) {
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
                 video.setSuccess(false);
             }
@@ -65,19 +75,15 @@ public final class VideoProcessorThread extends FileProcessorThread {
             MediaMetadataRetriever metadataRetriever = new MediaMetadataRetriever();
             try {
                 metadataRetriever.setDataSource(video.getOriginalPath());
-                String duration = metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-                String orientation = null;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1) {
-                    orientation = metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
-                }
-                String height = null;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-                    height = metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
-                }
-                String width = null;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-                    width = metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
-                }
+
+                String duration =
+                        metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                String orientation =
+                        metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                String height =
+                        metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+                String width =
+                        metadataRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
 
                 if (duration != null) {
                     video.setDuration(Long.parseLong(duration));
@@ -95,6 +101,9 @@ public final class VideoProcessorThread extends FileProcessorThread {
                 }
             } catch (Exception e) {
                 LogUtils.d(TAG, "postProcessVideo: Error generating metadata");
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
             } finally {
                 metadataRetriever.release();
@@ -105,24 +114,25 @@ public final class VideoProcessorThread extends FileProcessorThread {
             String previewPath = createPreviewImage(video.getOriginalPath());
             video.setPreviewImage(previewPath);
             String previewThumbnail = downScaleAndSaveImage(previewPath, THUMBNAIL_BIG, quality);
-            String previewThumbnailSmall = downScaleAndSaveImage(previewPath, THUMBNAIL_SMALL, quality);
+            String previewThumbnailSmall = downScaleAndSaveImage(previewPath, THUMBNAIL_SMALL,
+                    quality);
             video.setPreviewThumbnail(previewThumbnail);
             video.setPreviewThumbnailSmall(previewThumbnailSmall);
         }
     }
 
     private void onDone() {
-        try {
-            if (callback != null) {
-                getActivityFromContext().runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onVideosChosen((List<ChosenVideo>) files);
-                    }
-                });
-            }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
+        if (callback != null) {
+            getActivityFromContext().runOnUiThread(() -> {
+                errorFilesCallback();
+                callback.onVideosChosen((List<ChosenVideo>) files);
+            });
+        }
+    }
+
+    private void errorFilesCallback() {
+        if (callback != null && !errorFiles.isEmpty()) {
+            callback.onErrorFiles(errorFiles);
         }
     }
 

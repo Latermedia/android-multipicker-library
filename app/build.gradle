@@ -29,8 +29,8 @@ android {
 
     defaultConfig {
         applicationId "com.kbeanie.multipicker.sample"
-        minSdkVersion 14
-        targetSdkVersion 25
+        minSdkVersion 22
+        targetSdkVersion 29
         versionCode 13
         versionName "1.3"
     }

@@ -10,13 +10,13 @@ import com.kbeanie.multipicker.core.PickerManager;
 
 public class LogUtils {
     public static void d(String tag, String message){
-        if(PickerManager.debugglable){
+        if(PickerManager.debuggable){
             Log.d(tag, message);
         }
     }
 
     public static void e(String tag, String message) {
-        if(PickerManager.debugglable){
+        if(PickerManager.debuggable){
             Log.e(tag, message);
         }
     }

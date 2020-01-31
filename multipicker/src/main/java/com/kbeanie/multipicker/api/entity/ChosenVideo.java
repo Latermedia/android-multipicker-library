@@ -1,7 +1,5 @@
 package com.kbeanie.multipicker.api.entity;
 
-import android.os.Parcel;
-
 /**
  * Created by kbibek on 2/20/16.
  */
@@ -14,48 +12,14 @@ public class ChosenVideo extends ChosenFile {
     private String previewThumbnailSmall;
     private int orientation;
 
-    public ChosenVideo(){
-
-    }
-
-    protected ChosenVideo(Parcel in) {
-        super(in);
-        this.width = in.readInt();
-        this.height = in.readInt();
-        this.duration = in.readLong();
-        this.previewImage = in.readString();
-        this.previewThumbnail = in.readString();
-        this.previewThumbnailSmall = in.readString();
-        this.orientation = in.readInt();
-    }
-
-    public static final Creator<ChosenVideo> CREATOR = new Creator<ChosenVideo>() {
-        @Override
-        public ChosenVideo createFromParcel(Parcel in) {
-            return new ChosenVideo(in);
-        }
-
-        @Override
-        public ChosenVideo[] newArray(int size) {
-            return new ChosenVideo[size];
-        }
-    };
-
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        super.writeToParcel(dest, flags);
-        dest.writeInt(width);
-        dest.writeInt(height);
-        dest.writeLong(duration);
-        dest.writeString(previewImage);
-        dest.writeString(previewThumbnail);
-        dest.writeString(previewThumbnailSmall);
-        dest.writeInt(orientation);
+    public ChosenVideo() {
+        super();
     }
 
     /**
      * Get the width of the processed video
-     * @return
+     *
+     * @return width
      */
     public int getWidth() {
         return width;
@@ -67,7 +31,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the height of the processed video
-     * @return
+     *
+     * @return height
      */
     public int getHeight() {
         return height;
@@ -79,7 +44,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the duration of the video in milliseconds
-     * @return
+     *
+     * @return duration
      */
     public long getDuration() {
         return duration;
@@ -91,7 +57,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the preview image file path
-     * @return
+     *
+     * @return path
      */
     public String getPreviewImage() {
         return previewImage;
@@ -103,7 +70,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the preview image's thumbnail file path
-     * @return
+     *
+     * @return path
      */
     public String getPreviewThumbnail() {
         return previewThumbnail;
@@ -115,7 +83,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the preview image's small thumbnail file path
-     * @return
+     *
+     * @return path
      */
     public String getPreviewThumbnailSmall() {
         return previewThumbnailSmall;
@@ -127,7 +96,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get the orientation of the video
-     * @return
+     *
+     * @return orientation
      */
     public int getOrientation() {
         return orientation;
@@ -139,7 +109,8 @@ public class ChosenVideo extends ChosenFile {
 
     /**
      * Get pretty format orientation of the video
-     * @return
+     *
+     * @return orientation name
      */
     public String getOrientationName() {
         return orientation + " Deg";

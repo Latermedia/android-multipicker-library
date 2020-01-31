@@ -2,6 +2,9 @@ package com.kbeanie.multipicker.core.threads;
 
 import android.content.Context;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import com.kbeanie.multipicker.api.callbacks.ImagePickerCallback;
 import com.kbeanie.multipicker.api.entity.ChosenFile;
 import com.kbeanie.multipicker.api.entity.ChosenImage;
@@ -14,7 +17,7 @@ import java.util.List;
  * Created by kbibek on 2/20/16.
  */
 public final class ImageProcessorThread extends FileProcessorThread {
-    private final static String TAG = ImageProcessorThread.class.getSimpleName();
+    private final static String TAG = "ImageProcessorThread";
 
     private boolean shouldGenerateThumbnails;
     private boolean shouldGenerateMetadata;
@@ -23,9 +26,11 @@ public final class ImageProcessorThread extends FileProcessorThread {
     private int maxImageHeight = -1;
     private int quality = 100;
 
+    @Nullable
     private ImagePickerCallback callback;
 
-    public ImageProcessorThread(Context context, List<ChosenImage> paths, int cacheLocation) {
+    public ImageProcessorThread(@NonNull Context context, List<ChosenImage> paths,
+                                int cacheLocation) {
         super(context, paths, cacheLocation);
     }
 
@@ -41,21 +46,22 @@ public final class ImageProcessorThread extends FileProcessorThread {
     public void run() {
         super.run();
         postProcessImages();
+        checkErrorFiles();
         onDone();
     }
 
     private void onDone() {
-        try {
-            if (callback != null) {
-                getActivityFromContext().runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onImagesChosen((List<ChosenImage>) files);
-                    }
-                });
-            }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
+        if (callback != null) {
+            getActivityFromContext().runOnUiThread(() -> {
+                errorFilesCallback();
+                callback.onImagesChosen((List<ChosenImage>) files);
+            });
+        }
+    }
+
+    private void errorFilesCallback() {
+        if (callback != null && !errorFiles.isEmpty()) {
+            callback.onErrorFiles(errorFiles);
         }
     }
 
@@ -66,45 +72,50 @@ public final class ImageProcessorThread extends FileProcessorThread {
                 postProcessImage(image);
                 image.setSuccess(true);
             } catch (PickerException e) {
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
                 image.setSuccess(false);
             }
         }
     }
 
-    private ChosenImage postProcessImage(ChosenImage image) throws PickerException {
+    private void postProcessImage(ChosenImage image) throws PickerException {
         if (maxImageWidth != -1 && maxImageHeight != -1) {
             image = ensureMaxWidthAndHeight(maxImageWidth, maxImageHeight, quality, image);
         }
         LogUtils.d(TAG, "postProcessImage: " + image.getMimeType());
         if (shouldGenerateMetadata) {
             try {
-                image = generateMetadata(image);
+                generateMetadata(image);
             } catch (Exception e) {
                 LogUtils.d(TAG, "postProcessImage: Error generating metadata");
+                if (callback != null) {
+                    callback.onPickerException(e);
+                }
                 e.printStackTrace();
             }
         }
         if (shouldGenerateThumbnails) {
-            image = generateThumbnails(image);
+            generateThumbnails(image);
         }
         LogUtils.d(TAG, "postProcessImage: " + image);
-        return image;
     }
 
-    private ChosenImage generateMetadata(ChosenImage image) {
+    private void generateMetadata(ChosenImage image) {
         image.setWidth(Integer.parseInt(getWidthOfImage(image.getOriginalPath())));
         image.setHeight(Integer.parseInt(getHeightOfImage(image.getOriginalPath())));
         image.setOrientation(getOrientation(image.getOriginalPath()));
-        return image;
     }
 
-    private ChosenImage generateThumbnails(ChosenImage image) throws PickerException {
-        String thumbnailBig = downScaleAndSaveImage(image.getOriginalPath(), THUMBNAIL_BIG, quality);
+    private void generateThumbnails(ChosenImage image) throws PickerException {
+        String thumbnailBig = downScaleAndSaveImage(image.getOriginalPath(), THUMBNAIL_BIG,
+                quality);
         image.setThumbnailPath(thumbnailBig);
-        String thumbnailSmall = downScaleAndSaveImage(image.getOriginalPath(), THUMBNAIL_SMALL, quality);
+        String thumbnailSmall = downScaleAndSaveImage(image.getOriginalPath(), THUMBNAIL_SMALL,
+                quality);
         image.setThumbnailSmallPath(thumbnailSmall);
-        return image;
     }
 
     public void setShouldGenerateMetadata(boolean shouldGenerateMetadata) {

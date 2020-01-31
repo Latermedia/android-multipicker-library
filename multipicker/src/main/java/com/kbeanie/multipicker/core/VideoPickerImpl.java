@@ -3,13 +3,18 @@ package com.kbeanie.multipicker.core;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ClipData;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.FileProvider;
+
+import androidx.annotation.Nullable;
+import androidx.core.content.FileProvider;
+import androidx.fragment.app.Fragment;
 
 import com.kbeanie.multipicker.api.Picker;
 import com.kbeanie.multipicker.api.callbacks.VideoPickerCallback;
@@ -17,6 +22,7 @@ import com.kbeanie.multipicker.api.entity.ChosenVideo;
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.core.threads.VideoProcessorThread;
 import com.kbeanie.multipicker.utils.LogUtils;
+import com.kbeanie.multipicker.utils.MediaType;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -24,7 +30,8 @@ import java.util.List;
 
 /**
  * Class to pick images (Stored or capture a new image using the device's camera)
- * This class cannot be used directly. User {@link com.kbeanie.multipicker.api.VideoPicker} or {@link com.kbeanie.multipicker.api.CameraVideoPicker}
+ * This class cannot be used directly. User {@link com.kbeanie.multipicker.api.VideoPicker} or
+ * {@link com.kbeanie.multipicker.api.CameraVideoPicker}
  */
 public abstract class VideoPickerImpl extends PickerManager {
     private final static String TAG = VideoPickerImpl.class.getSimpleName();
@@ -42,10 +49,6 @@ public abstract class VideoPickerImpl extends PickerManager {
 
     public VideoPickerImpl(Fragment fragment, int pickerType) {
         super(fragment, pickerType);
-    }
-
-    public VideoPickerImpl(android.app.Fragment appFragment, int pickerType) {
-        super(appFragment, pickerType);
     }
 
     public void reinitialize(String path) {
@@ -66,19 +69,21 @@ public abstract class VideoPickerImpl extends PickerManager {
 
     /**
      * Set quality of generated thumbnail images
-     * @param quality  Hint to the compressor, 0-100. 0 meaning compress for
-     *                 small size, 100 meaning compress for max quality. Some
-     *                 formats, like PNG which is lossless, will ignore the
-     *                 quality setting. Defaults to 100 (max quality)
+     *
+     * @param quality Hint to the compressor, 0-100. 0 meaning compress for
+     *                small size, 100 meaning compress for max quality. Some
+     *                formats, like PNG which is lossless, will ignore the
+     *                quality setting. Defaults to 100 (max quality)
      */
     public void setQuality(int quality) {
         this.quality = quality;
     }
 
     @Override
+    @Nullable
     protected String pick() throws PickerException {
         if (callback == null) {
-            throw new PickerException("VideoPickerCallback null!!! Please set one");
+            throw new PickerException("VideoPickerCallback null! Please set one");
         }
         if (pickerType == Picker.PICK_VIDEO_DEVICE) {
             return pickLocalVideo();
@@ -89,25 +94,39 @@ public abstract class VideoPickerImpl extends PickerManager {
         return null;
     }
 
+    @Nullable
     protected String takeVideoWithCamera() throws PickerException {
-        Uri uri = null;
+        Uri uri;
         String tempFilePath;
+
+        final Context context = getContext();
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             tempFilePath = getNewFileLocation("mp4", Environment.DIRECTORY_MOVIES);
+            String fileProviderAuthority = getFileProviderAuthority();
+
+            if (tempFilePath == null || fileProviderAuthority == null) {
+                return null;
+            }
+
             File file = new File(tempFilePath);
-            uri = FileProvider.getUriForFile(getContext(), getFileProviderAuthority(), file);
+            uri = FileProvider.getUriForFile(context, fileProviderAuthority, file);
             LogUtils.d(TAG, "takeVideoWithCamera: Temp Uri: " + uri.getPath());
         } else {
             tempFilePath = buildFilePath("mp4", Environment.DIRECTORY_MOVIES);
+            if (tempFilePath == null) {
+                return null;
+            }
             uri = Uri.fromFile(new File(tempFilePath));
         }
         Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
         intent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+
         if (extras != null) {
             intent.putExtras(extras);
         }
         LogUtils.d(TAG, "Temp Path for Camera capture: " + tempFilePath);
-        pickInternal(intent, Picker.PICK_VIDEO_CAMERA);
+        captureMediaInternal(intent, uri, Picker.PICK_VIDEO_CAMERA);
         return tempFilePath;
     }
 
@@ -135,7 +154,8 @@ public abstract class VideoPickerImpl extends PickerManager {
     private void handleCameraData(Intent data) {
         LogUtils.d(TAG, "handleCameraData: " + path);
         if (path == null || path.isEmpty()) {
-            throw new RuntimeException("Camera Path cannot be null. Re-initialize with correct path value.");
+            throw new RuntimeException("Camera Path cannot be null. Re-initialize with correct " +
+                    "path value.");
         } else {
             List<String> uris = new ArrayList<>();
             File file = new File(path);
@@ -179,7 +199,10 @@ public abstract class VideoPickerImpl extends PickerManager {
     }
 
     private void processVideos(List<String> uris) {
-        VideoProcessorThread thread = new VideoProcessorThread(getContext(), getVideoObjects(uris), cacheLocation);
+        final Context context = getContext();
+
+        VideoProcessorThread thread = new VideoProcessorThread(context,
+                getVideoObjects(uris), cacheLocation);
         thread.setRequestId(requestId);
         thread.setShouldGeneratePreviewImages(generatePreviewImages);
         thread.setShouldGenerateMetadata(generateMetadata);
@@ -194,24 +217,16 @@ public abstract class VideoPickerImpl extends PickerManager {
             ChosenVideo video = new ChosenVideo();
             video.setQueryUri(uri);
             video.setDirectoryType(Environment.DIRECTORY_MOVIES);
-            video.setType("video");
+            video.setType(MediaType.VIDEO);
             videos.add(video);
         }
         return videos;
     }
 
     private void onError(final String errorMessage) {
-        try {
-            if (callback != null) {
-                ((Activity) getContext()).runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onError(errorMessage);
-                    }
-                });
-            }
-        } catch (NullPointerException e) {
-            e.printStackTrace();
+        if (callback != null) {
+            final Context context = getContext();
+            ((Activity) context).runOnUiThread(() -> callback.onPickerError(errorMessage));
         }
     }
 }

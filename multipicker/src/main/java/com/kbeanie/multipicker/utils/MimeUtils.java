@@ -36,11 +36,11 @@ public class MimeUtils {
 
     public static String guessMimeTypeFromExtension(String extension) {
         if (SET_IMAGE_EXTENSIONS.contains(extension.toLowerCase())) {
-            return "image";
+            return MediaType.IMAGE;
         } else if (SET_VIDEO_EXTENSIONS.contains(extension.toLowerCase())) {
-            return "video";
+            return MediaType.VIDEO;
         } else {
-            return "file";
+            return MediaType.FILE;
         }
     }
 }

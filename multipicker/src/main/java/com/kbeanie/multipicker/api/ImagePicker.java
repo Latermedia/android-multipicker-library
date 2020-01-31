@@ -1,7 +1,7 @@
 package com.kbeanie.multipicker.api;
 
 import android.app.Activity;
-import android.support.v4.app.Fragment;
+import androidx.fragment.app.Fragment;
 
 import com.kbeanie.multipicker.api.exceptions.PickerException;
 import com.kbeanie.multipicker.core.ImagePickerImpl;
@@ -12,7 +12,7 @@ import com.kbeanie.multipicker.core.ImagePickerImpl;
 public class ImagePicker extends ImagePickerImpl {
     /**
      * Constructor for choosing an image from an {@link Activity}
-     * @param activity
+     * @param activity activity
      */
     public ImagePicker(Activity activity) {
         super(activity, Picker.PICK_IMAGE_DEVICE);
@@ -20,18 +20,10 @@ public class ImagePicker extends ImagePickerImpl {
 
     /**
      * Constructor for choosing an image from a {@link Fragment}
-     * @param fragment
+     * @param fragment fragment
      */
     public ImagePicker(Fragment fragment) {
         super(fragment, Picker.PICK_IMAGE_DEVICE);
-    }
-
-    /**
-     * Constructor for choosing an image from a {@link android.app.Fragment}
-     * @param appFragment
-     */
-    public ImagePicker(android.app.Fragment appFragment) {
-        super(appFragment, Picker.PICK_IMAGE_DEVICE);
     }
 
     /**
@@ -51,7 +43,7 @@ public class ImagePicker extends ImagePickerImpl {
         } catch (PickerException e) {
             e.printStackTrace();
             if (callback != null) {
-                callback.onError(e.getMessage());
+                callback.onPickerError(e.getMessage());
             }
         }
     }
